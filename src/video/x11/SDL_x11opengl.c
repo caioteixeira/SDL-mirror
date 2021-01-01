@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2020 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -23,7 +23,6 @@
 #if SDL_VIDEO_DRIVER_X11
 
 #include "SDL_x11video.h"
-#include "SDL_assert.h"
 #include "SDL_hints.h"
 
 /* GLX implementation of SDL OpenGL support */
@@ -32,11 +31,15 @@
 #include "SDL_loadso.h"
 #include "SDL_x11opengles.h"
 
-#if defined(__IRIX__)
-/* IRIX doesn't have a GL library versioning system */
+#if defined(__IRIX__) || defined(__NetBSD__) || defined(__OpenBSD__)
+/*
+ * IRIX doesn't have a GL library versioning system.
+ * NetBSD and OpenBSD have different GL library versions depending on how
+ * the library was installed.
+ */
 #define DEFAULT_OPENGL  "libGL.so"
 #elif defined(__MACOSX__)
-#define DEFAULT_OPENGL  "/usr/X11R6/lib/libGL.1.dylib"
+#define DEFAULT_OPENGL  "/opt/X11/lib/libGL.1.dylib"
 #elif defined(__QNXNTO__)
 #define DEFAULT_OPENGL  "libGL.so.3"
 #else
@@ -189,21 +192,29 @@ X11_GL_LoadLibrary(_THIS, const char *path)
 
     /* Load function pointers */
     handle = _this->gl_config.dll_handle;
-    *(void**)&_this->gl_data->glXQueryExtension =
+    _this->gl_data->glXQueryExtension =
+        (Bool (*)(Display *, int *, int *))
             GL_LoadFunction(handle, "glXQueryExtension");
-    *(void**)&_this->gl_data->glXGetProcAddress =
+    _this->gl_data->glXGetProcAddress =
+        (void *(*)(const GLubyte *))
             GL_LoadFunction(handle, "glXGetProcAddressARB");
-    *(void**)&_this->gl_data->glXChooseVisual =
+    _this->gl_data->glXChooseVisual =
+        (XVisualInfo * (*)(Display *, int, int *))
             X11_GL_GetProcAddress(_this, "glXChooseVisual");
-    *(void**)&_this->gl_data->glXCreateContext =
+    _this->gl_data->glXCreateContext =
+        (GLXContext(*)(Display *, XVisualInfo *, GLXContext, int))
             X11_GL_GetProcAddress(_this, "glXCreateContext");
-    *(void**)&_this->gl_data->glXDestroyContext =
+    _this->gl_data->glXDestroyContext =
+        (void (*)(Display *, GLXContext))
             X11_GL_GetProcAddress(_this, "glXDestroyContext");
-    *(void**)&_this->gl_data->glXMakeCurrent =
+    _this->gl_data->glXMakeCurrent =
+        (int (*)(Display *, GLXDrawable, GLXContext))
             X11_GL_GetProcAddress(_this, "glXMakeCurrent");
-    *(void**)&_this->gl_data->glXSwapBuffers =
+    _this->gl_data->glXSwapBuffers =
+        (void (*)(Display *, GLXDrawable))
             X11_GL_GetProcAddress(_this, "glXSwapBuffers");
-    *(void**)&_this->gl_data->glXQueryDrawable =
+    _this->gl_data->glXQueryDrawable =
+        (void (*)(Display*,GLXDrawable,int,unsigned int*))
             X11_GL_GetProcAddress(_this, "glXQueryDrawable");
 
     if (!_this->gl_data->glXQueryExtension ||
@@ -230,7 +241,8 @@ X11_GL_LoadLibrary(_THIS, const char *path)
     /* If we need a GL ES context and there's no  
      * GLX_EXT_create_context_es2_profile extension, switch over to X11_GLES functions  
      */
-    if (_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES && 
+    if (((_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES) ||
+         SDL_GetHintBoolean(SDL_HINT_VIDEO_X11_FORCE_EGL, SDL_FALSE)) &&
         X11_GL_UseEGL(_this) ) {
 #if SDL_VIDEO_OPENGL_EGL
         X11_GL_UnloadLibrary(_this);
@@ -333,11 +345,13 @@ X11_GL_InitExtensions(_THIS)
 
     vinfo = X11_GL_GetVisual(_this, display, screen);
     if (vinfo) {
-        GLXContext (*glXGetCurrentContextFunc)(void);
-        GLXDrawable (*glXGetCurrentDrawableFunc)(void);
+        GLXContext (*glXGetCurrentContextFunc) (void) =
+            (GLXContext(*)(void))
+                X11_GL_GetProcAddress(_this, "glXGetCurrentContext");
 
-        *(void**)&glXGetCurrentContextFunc = X11_GL_GetProcAddress(_this, "glXGetCurrentContext");
-        *(void**)&glXGetCurrentDrawableFunc = X11_GL_GetProcAddress(_this, "glXGetCurrentDrawable");
+        GLXDrawable (*glXGetCurrentDrawableFunc) (void) =
+            (GLXDrawable(*)(void))
+                X11_GL_GetProcAddress(_this, "glXGetCurrentDrawable");
 
         if (glXGetCurrentContextFunc && glXGetCurrentDrawableFunc) {
             XSetWindowAttributes xattr;
@@ -363,7 +377,9 @@ X11_GL_InitExtensions(_THIS)
         X11_XFree(vinfo);
     }
 
-    *(void**)&glXQueryExtensionsStringFunc = X11_GL_GetProcAddress(_this, "glXQueryExtensionsString");
+    glXQueryExtensionsStringFunc =
+        (const char *(*)(Display *, int)) X11_GL_GetProcAddress(_this,
+                                                                "glXQueryExtensionsString");
     if (glXQueryExtensionsStringFunc) {
         extensions = glXQueryExtensionsStringFunc(display, screen);
     } else {
@@ -373,7 +389,8 @@ X11_GL_InitExtensions(_THIS)
     /* Check for GLX_EXT_swap_control(_tear) */
     _this->gl_data->HAS_GLX_EXT_swap_control_tear = SDL_FALSE;
     if (HasExtension("GLX_EXT_swap_control", extensions)) {
-        *(void**)&_this->gl_data->glXSwapIntervalEXT =
+        _this->gl_data->glXSwapIntervalEXT =
+            (void (*)(Display*,GLXDrawable,int))
                 X11_GL_GetProcAddress(_this, "glXSwapIntervalEXT");
         if (HasExtension("GLX_EXT_swap_control_tear", extensions)) {
             _this->gl_data->HAS_GLX_EXT_swap_control_tear = SDL_TRUE;
@@ -382,23 +399,26 @@ X11_GL_InitExtensions(_THIS)
 
     /* Check for GLX_MESA_swap_control */
     if (HasExtension("GLX_MESA_swap_control", extensions)) {
-        *(void**)&_this->gl_data->glXSwapIntervalMESA =
-                X11_GL_GetProcAddress(_this, "glXSwapIntervalMESA");
-        *(void**)&_this->gl_data->glXGetSwapIntervalMESA =
-                X11_GL_GetProcAddress(_this, "glXGetSwapIntervalMESA");
+        _this->gl_data->glXSwapIntervalMESA =
+            (int(*)(int)) X11_GL_GetProcAddress(_this, "glXSwapIntervalMESA");
+        _this->gl_data->glXGetSwapIntervalMESA =
+            (int(*)(void)) X11_GL_GetProcAddress(_this,
+                                                   "glXGetSwapIntervalMESA");
     }
 
     /* Check for GLX_SGI_swap_control */
     if (HasExtension("GLX_SGI_swap_control", extensions)) {
-        *(void**)&_this->gl_data->glXSwapIntervalSGI =
-                 X11_GL_GetProcAddress(_this, "glXSwapIntervalSGI");
+        _this->gl_data->glXSwapIntervalSGI =
+            (int (*)(int)) X11_GL_GetProcAddress(_this, "glXSwapIntervalSGI");
     }
 
     /* Check for GLX_ARB_create_context */
     if (HasExtension("GLX_ARB_create_context", extensions)) {
-        *(void**)&_this->gl_data->glXCreateContextAttribsARB =
+        _this->gl_data->glXCreateContextAttribsARB =
+            (GLXContext (*)(Display*,GLXFBConfig,GLXContext,Bool,const int *))
                 X11_GL_GetProcAddress(_this, "glXCreateContextAttribsARB");
-        *(void**)&_this->gl_data->glXChooseFBConfig =
+        _this->gl_data->glXChooseFBConfig =
+            (GLXFBConfig *(*)(Display *, int, const int *, int *))
                 X11_GL_GetProcAddress(_this, "glXChooseFBConfig");
     }
 
@@ -633,8 +653,13 @@ SDL_bool
 X11_GL_UseEGL(_THIS)
 {
     SDL_assert(_this->gl_data != NULL);
-    SDL_assert(_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES);
+    if (SDL_GetHintBoolean(SDL_HINT_VIDEO_X11_FORCE_EGL, SDL_FALSE))
+    {
+        /* use of EGL has been requested, even for desktop GL */
+        return SDL_TRUE;
+    }
 
+    SDL_assert(_this->gl_config.profile_mask == SDL_GL_CONTEXT_PROFILE_ES);
     return (SDL_GetHintBoolean(SDL_HINT_OPENGL_ES_DRIVER, SDL_FALSE)
             || _this->gl_config.major_version == 1 /* No GLX extension for OpenGL ES 1.x profiles. */
             || _this->gl_config.major_version > _this->gl_data->es_profile_max_supported_version.major

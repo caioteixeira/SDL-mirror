@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2020 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -23,7 +23,6 @@
 #if SDL_VIDEO_RENDER_OGL && !SDL_RENDER_DISABLED
 
 #include "SDL_stdinc.h"
-#include "SDL_log.h"
 #include "SDL_opengl.h"
 #include "SDL_video.h"
 #include "SDL_shaders_gl.h"
@@ -240,6 +239,23 @@ static const char *shader_source[NUM_SHADERS][2] =
 "\n"
 "void main()\n"
 "{\n"
+"    gl_FragColor = texture2D(tex0, v_texCoord);\n"
+"    gl_FragColor.a = 1.0;\n"
+"    gl_FragColor *= v_color;\n"
+"}"
+    },
+
+    /* SHADER_RGBA */
+    {
+        /* vertex shader */
+        TEXTURE_VERTEX_SHADER,
+        /* fragment shader */
+"varying vec4 v_color;\n"
+"varying vec2 v_texCoord;\n"
+"uniform sampler2D tex0;\n"
+"\n"
+"void main()\n"
+"{\n"
 "    gl_FragColor = texture2D(tex0, v_texCoord) * v_color;\n"
 "}"
     },
@@ -340,11 +356,12 @@ CompileShader(GL_ShaderContext *ctx, GLhandleARB shader, const char *defines, co
     ctx->glCompileShaderARB(shader);
     ctx->glGetObjectParameterivARB(shader, GL_OBJECT_COMPILE_STATUS_ARB, &status);
     if (status == 0) {
+        SDL_bool isstack;
         GLint length;
         char *info;
 
         ctx->glGetObjectParameterivARB(shader, GL_OBJECT_INFO_LOG_LENGTH_ARB, &length);
-        info = SDL_stack_alloc(char, length+1);
+        info = SDL_small_alloc(char, length+1, &isstack);
         ctx->glGetInfoLogARB(shader, length, NULL, info);
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
             "Failed to compile shader:\n%s%s\n%s", defines, source, info);
@@ -352,7 +369,7 @@ CompileShader(GL_ShaderContext *ctx, GLhandleARB shader, const char *defines, co
         fprintf(stderr,
             "Failed to compile shader:\n%s%s\n%s", defines, source, info);
 #endif
-        SDL_stack_free(info);
+        SDL_small_free(info, isstack);
 
         return SDL_FALSE;
     } else {
@@ -453,20 +470,20 @@ GL_CreateShaderContext(void)
         SDL_GL_ExtensionSupported("GL_ARB_shading_language_100") &&
         SDL_GL_ExtensionSupported("GL_ARB_vertex_shader") &&
         SDL_GL_ExtensionSupported("GL_ARB_fragment_shader")) {
-        *(void**)&ctx->glGetError = SDL_GL_GetProcAddress("glGetError");
-        *(void **)&ctx->glAttachObjectARB = SDL_GL_GetProcAddress("glAttachObjectARB");
-        *(void **)&ctx->glCompileShaderARB = SDL_GL_GetProcAddress("glCompileShaderARB");
-        *(void **)&ctx->glCreateProgramObjectARB = SDL_GL_GetProcAddress("glCreateProgramObjectARB");
-        *(void **)&ctx->glCreateShaderObjectARB = SDL_GL_GetProcAddress("glCreateShaderObjectARB");
-        *(void **)&ctx->glDeleteObjectARB = SDL_GL_GetProcAddress("glDeleteObjectARB");
-        *(void **)&ctx->glGetInfoLogARB = SDL_GL_GetProcAddress("glGetInfoLogARB");
-        *(void **)&ctx->glGetObjectParameterivARB = SDL_GL_GetProcAddress("glGetObjectParameterivARB");
-        *(void **)&ctx->glGetUniformLocationARB = SDL_GL_GetProcAddress("glGetUniformLocationARB");
-        *(void **)&ctx->glLinkProgramARB = SDL_GL_GetProcAddress("glLinkProgramARB");
-        *(void **)&ctx->glShaderSourceARB = SDL_GL_GetProcAddress("glShaderSourceARB");
-        *(void **)&ctx->glUniform1iARB = SDL_GL_GetProcAddress("glUniform1iARB");
-        *(void **)&ctx->glUniform1fARB = SDL_GL_GetProcAddress("glUniform1fARB");
-        *(void **)&ctx->glUseProgramObjectARB = SDL_GL_GetProcAddress("glUseProgramObjectARB");
+        ctx->glGetError = (GLenum (*)(void)) SDL_GL_GetProcAddress("glGetError");
+        ctx->glAttachObjectARB = (PFNGLATTACHOBJECTARBPROC) SDL_GL_GetProcAddress("glAttachObjectARB");
+        ctx->glCompileShaderARB = (PFNGLCOMPILESHADERARBPROC) SDL_GL_GetProcAddress("glCompileShaderARB");
+        ctx->glCreateProgramObjectARB = (PFNGLCREATEPROGRAMOBJECTARBPROC) SDL_GL_GetProcAddress("glCreateProgramObjectARB");
+        ctx->glCreateShaderObjectARB = (PFNGLCREATESHADEROBJECTARBPROC) SDL_GL_GetProcAddress("glCreateShaderObjectARB");
+        ctx->glDeleteObjectARB = (PFNGLDELETEOBJECTARBPROC) SDL_GL_GetProcAddress("glDeleteObjectARB");
+        ctx->glGetInfoLogARB = (PFNGLGETINFOLOGARBPROC) SDL_GL_GetProcAddress("glGetInfoLogARB");
+        ctx->glGetObjectParameterivARB = (PFNGLGETOBJECTPARAMETERIVARBPROC) SDL_GL_GetProcAddress("glGetObjectParameterivARB");
+        ctx->glGetUniformLocationARB = (PFNGLGETUNIFORMLOCATIONARBPROC) SDL_GL_GetProcAddress("glGetUniformLocationARB");
+        ctx->glLinkProgramARB = (PFNGLLINKPROGRAMARBPROC) SDL_GL_GetProcAddress("glLinkProgramARB");
+        ctx->glShaderSourceARB = (PFNGLSHADERSOURCEARBPROC) SDL_GL_GetProcAddress("glShaderSourceARB");
+        ctx->glUniform1iARB = (PFNGLUNIFORM1IARBPROC) SDL_GL_GetProcAddress("glUniform1iARB");
+        ctx->glUniform1fARB = (PFNGLUNIFORM1FARBPROC) SDL_GL_GetProcAddress("glUniform1fARB");
+        ctx->glUseProgramObjectARB = (PFNGLUSEPROGRAMOBJECTARBPROC) SDL_GL_GetProcAddress("glUseProgramObjectARB");
         if (ctx->glGetError &&
             ctx->glAttachObjectARB &&
             ctx->glCompileShaderARB &&

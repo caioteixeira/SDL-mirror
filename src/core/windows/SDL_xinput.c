@@ -1,6 +1,6 @@
 /*
   Simple DirectMedia Layer
-  Copyright (C) 1997-2018 Sam Lantinga <slouken@libsdl.org>
+  Copyright (C) 1997-2020 Sam Lantinga <slouken@libsdl.org>
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -20,7 +20,6 @@
 */
 #include "../../SDL_internal.h"
 
-#include "SDL_assert.h"
 #include "SDL_xinput.h"
 
 
@@ -82,6 +81,10 @@ WIN_LoadXInputDLL(void)
         return 0;  /* already loaded */
     }
 
+    /* NOTE: Don't load XinputUap.dll
+     * This is XInput emulation over Windows.Gaming.Input, and has all the
+     * limitations of that API (no devices at startup, no background input, etc.)
+     */
     version = (1 << 16) | 4;
     s_pXInputDLL = LoadLibrary(L"XInput1_4.dll");  /* 1.4 Ships with Windows 8. */
     if (!s_pXInputDLL) {
@@ -104,13 +107,13 @@ WIN_LoadXInputDLL(void)
     s_XInputDLLRefCount = 1;
 
     /* 100 is the ordinal for _XInputGetStateEx, which returns the same struct as XinputGetState, but with extra data in wButtons for the guide button, we think... */
-    *(void**)&SDL_XInputGetState = GetProcAddress((HMODULE)s_pXInputDLL, (LPCSTR)100);
+    SDL_XInputGetState = (XInputGetState_t)GetProcAddress((HMODULE)s_pXInputDLL, (LPCSTR)100);
     if (!SDL_XInputGetState) {
-        *(void**)&SDL_XInputGetState = GetProcAddress((HMODULE)s_pXInputDLL, "XInputGetState");
+        SDL_XInputGetState = (XInputGetState_t)GetProcAddress((HMODULE)s_pXInputDLL, "XInputGetState");
     }
-    *(void**)&SDL_XInputSetState = GetProcAddress((HMODULE)s_pXInputDLL, "XInputSetState");
-    *(void**)&SDL_XInputGetCapabilities = GetProcAddress((HMODULE)s_pXInputDLL, "XInputGetCapabilities");
-    *(void**)&SDL_XInputGetBatteryInformation = GetProcAddress( (HMODULE)s_pXInputDLL, "XInputGetBatteryInformation" );
+    SDL_XInputSetState = (XInputSetState_t)GetProcAddress((HMODULE)s_pXInputDLL, "XInputSetState");
+    SDL_XInputGetCapabilities = (XInputGetCapabilities_t)GetProcAddress((HMODULE)s_pXInputDLL, "XInputGetCapabilities");
+    SDL_XInputGetBatteryInformation = (XInputGetBatteryInformation_t)GetProcAddress( (HMODULE)s_pXInputDLL, "XInputGetBatteryInformation" );
     if (!SDL_XInputGetState || !SDL_XInputSetState || !SDL_XInputGetCapabilities) {
         WIN_UnloadXInputDLL();
         return -1;
